@@ -5,3 +5,22 @@ artifacts/
 .env
 .DS_Store
 .idea/
+node_modules/
+web/dist/
+
+# AI assistants / local tooling
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.cursor/
+.cursorrules
+.aider*
+.vscode/
+
+# Environment files (keep the example)
+.env.*
+!.env.example
+
+# Logs and build output
+*.log
+dist/
