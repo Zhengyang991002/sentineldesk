@@ -2,8 +2,8 @@
 
 PIPELINE_MODE selects what runs behind POST /triage:
 
-    mock  (default)  app/mocks.py, deterministic and keyword-routed. No model files needed.
-    real             src.pipeline.run: classifier, retrieval, escalation gate, reply generation.
+    real  (default)  src.pipeline.run: classifier, retrieval, escalation gate, reply generation.
+    mock             app/mocks.py, deterministic and keyword-routed. No model files needed (UI dev only).
     auto             real if it loads (model artifacts and KB present), otherwise mock.
 
 The response shape is the same in every mode (see docs/ARCHITECTURE.md). To change what a real
@@ -95,11 +95,17 @@ def _to_api_result(out: dict) -> dict:
         "escalation": {
             "escalate": escalate,
             "reason": "; ".join(gate["reasons"]) or "All escalation checks passed.",
+            "rules": list(gate["rules"]),        # e.g. ["R1", "R4"]
+            "reasons": list(gate["reasons"]),    # one human-readable reason per rule
         },
+        "pii_masked": out.get("pii", {}),
         "retrieved": [
-            {"ticket_id": str(h["ticket_id"]), "score": float(h["score"]), "answer": str(h["answer"])}
+            {"ticket_id": str(h["ticket_id"]), "score": float(h["score"]), "answer": str(h["answer"]),
+             "language": str(h.get("language", "")), "subject": str(h.get("subject", ""))}
             for h in out["hits"]
         ],
+        # "llm" (Gemini), "fallback" (template after an LLM error) or "holding" (R3/R5: no draft attempted)
+        "draft_source": out["draft"].get("source"),
         # An escalated ticket is not shown a draft, even though src.pipeline may have produced one.
         "draft": None
         if escalate
@@ -115,10 +121,9 @@ def _run_real(subject: str | None, body: str) -> dict:
 
 def _warm_real() -> None:
     """Load the classifier and build the retrieval index now, so the first request is not slow."""
-    from src import retrieval, triage
+    from src import pipeline as core
 
-    triage.predict(None, "warm up")
-    retrieval.search("warm up", k=1)
+    log.info("Pipeline warmup: %s ms", core.warmup())
 
 
 # ---------------------------------------------------------------------------------------------
@@ -193,7 +198,7 @@ def _run_mock(subject: str | None, body: str) -> dict:
 # ---------------------------------------------------------------------------------------------
 
 def _select_mode() -> str:
-    requested = os.getenv("PIPELINE_MODE", "mock").strip().lower()
+    requested = os.getenv("PIPELINE_MODE", "real").strip().lower()
     if requested not in ("mock", "real", "auto"):
         log.warning("Unknown PIPELINE_MODE=%r, using mock", requested)
         return "mock"

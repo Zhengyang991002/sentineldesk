@@ -25,4 +25,4 @@ TOP_K = 5
 
 # LLM
 LLM_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")  # Vertex AI, see .env.example
-LLM_MAX_TOKENS = 1500
+LLM_MAX_TOKENS = 4096  # Gemini 3 spends part of this budget on thinking
