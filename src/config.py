@@ -17,9 +17,10 @@ DATASET_URL = (
 SEED = 42
 VAL_FRAC = 0.10  # fraction of the KB split held out for threshold tuning
 
-# Escalation gate thresholds (placeholders: tune on val)
-TAU_CONF = 0.50  # min confidence for type and priority
-TAU_SIM = 0.15   # min top-1 retrieval similarity. Set for the TF-IDF stub (top-1 ~0.1-0.3); RETUNE on val once embeddings land
+# Escalation gate thresholds (tune on val only)
+TAU_CONF = 0.50  # reporting only (scripts/eval_by_language.py); confidence no longer escalates on its own
+TAU_SIM = 0.50   # min cosine similarity for a resolved precedent to count as "similar" (embedding backend).
+                 # Val p1=0.75, out-of-scope max=0.39, short live queries ~0.58-0.72 (scripts/tune_sim.py)
 TOP_K = 5
 
 # LLM

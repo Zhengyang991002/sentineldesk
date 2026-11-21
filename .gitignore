@@ -1,7 +1,10 @@
 .venv/
 __pycache__/
 data/
-artifacts/
+artifacts/*
+# Prebuilt KB embeddings for retrieval (fit split only, ~32 MB) are shared through git
+!artifacts/kb_emb.npy
+!artifacts/kb_emb_ids.npy
 .env
 .DS_Store
 .idea/
