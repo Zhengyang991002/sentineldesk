@@ -1,0 +1,27 @@
+{
+  "n_test": 5718,
+  "triage_ms_per_ticket": 3.76,
+  "type": {
+    "macro_f1": 0.8825,
+    "accuracy": 0.8732
+  },
+  "queue": {
+    "macro_f1": 0.6068,
+    "accuracy": 0.6083
+  },
+  "priority": {
+    "macro_f1": 0.6403,
+    "accuracy": 0.6529
+  },
+  "high_priority_incident": {
+    "support": 995,
+    "classifier_recall": 0.6874
+  },
+  "gate_sample": {
+    "n": 1000,
+    "escalation_rate": 0.463,
+    "hp_incident_escalation_recall": 0.7895,
+    "retrieval_gate_ms_p50": 49.5,
+    "retrieval_gate_ms_p95": 76.2
+  }
+}

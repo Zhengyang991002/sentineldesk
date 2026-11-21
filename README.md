@@ -44,7 +44,7 @@ A ticket is escalated if **any** rule fires; every reason is shown to the operat
 | Rule | Fires when |
 |---|---|
 | **R1** Critical incident | predicted `priority=high` and `type=Incident`, **or** a critical keyword (outage, data breach, hospital/EMR, Ausfall, Datenleck, ...) as a safety net |
-| **R2** Low confidence | type or priority confidence < `TAU_CONF` |
+| **R2** Low confidence | type or priority confidence < `TAU_CONF` (0.55) |
 | **R3** No precedent | top-1 retrieval similarity < `TAU_SIM` (0.50); no draft is generated, a safe holding reply is used |
 | **R4** Unsupported request | asks for refunds, pricing, legal/SLA guarantees, contract changes or data deletion that no retrieved resolution covers (keywords EN+DE, plus the LLM's own `unsupported_requests`) |
 | **R5** Adversarial input | prompt-injection patterns ("ignore previous instructions", ...); no draft is generated |
@@ -91,16 +91,35 @@ Validation (KB `val`, 2,287 tickets), from `python -m src.triage` → `reports/t
 | queue | 0.611 | 0.617 |
 | priority | 0.622 | 0.635 |
 
-Holdout test: run `python -m scripts.evaluate`; results are written to `reports/metrics.json`.
+Holdout test (5,718 unseen tickets, `python -m scripts.evaluate` → `reports/metrics.json`):
 
 | Metric | Value |
 |---|---|
-| Type / Queue / Priority Macro-F1 | TBD |
-| High-priority Incident recall (classifier) | TBD |
-| High-priority Incident recall (gate escalates) | TBD |
-| Escalation rate | TBD |
-| Latency without LLM (warm) | ~30–110 ms |
+| Type Macro-F1 / accuracy | **0.883** / 0.873 |
+| Queue Macro-F1 / accuracy | **0.607** / 0.608 |
+| Priority Macro-F1 / accuracy | **0.640** / 0.653 |
+| High-priority Incident recall, classifier alone (n = 995) | 0.687 |
+| High-priority Incident recall, **gate escalates** (1,000-ticket sample) | **0.790** |
+| Escalation rate (pre-generation rules R1–R5, same sample) | 46.3% |
+| Triage latency | 3.8 ms / ticket |
+| Retrieval + gate latency (p50 / p95) | 49.5 / 76.2 ms |
 | Latency with LLM (p50 / p95) | TBD |
+
+Reading the numbers: queue and priority labels are noisy in this dataset (e.g. marketing complaints labelled "IT Support / Incident / high"), which caps those scores. The gate is tuned for safety rather than coverage: it raises recall on true high-priority incidents from 0.69 (classifier) to 0.79, at the cost of escalating about half of all tickets, since every predicted high-priority Incident is paged (R1).
+
+### `TAU_CONF` tuning (validation split, `python -m scripts.tune_conf`)
+
+R2 fires when type **or** priority confidence is below `TAU_CONF`. "Accuracy" = type and priority both correct.
+
+| `TAU_CONF` | Escalated by R2 | Accuracy kept | Accuracy escalated | HP-Incident caught |
+|---|---|---|---|---|
+| 0.45 | 3.2% | 0.580 | 0.329 | 0.713 |
+| 0.50 | 7.5% | 0.594 | 0.302 | 0.728 |
+| **0.55** | **16.9%** | **0.624** | **0.318** | **0.783** |
+| 0.60 | 25.9% | 0.642 | 0.372 | 0.828 |
+| 0.70 | 43.3% | 0.695 | 0.410 | 0.890 |
+
+At 0.55, the tickets R2 sends to a human are about half as accurate as the ones it keeps (0.32 vs 0.62), and high-priority-incident coverage rises from 0.70 to 0.78 while escalating 17%.
 
 Gate behaviour on hand-written demo tickets: `python -m scripts.test_gate` (8/8 pass: refund+SLA → R4, injection → R5, out-of-scope EN/DE → R3, hospital VPN outage → R1, empty subject and normal tickets → no false R3/R4/R5).
 

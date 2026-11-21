@@ -19,7 +19,7 @@ SEED = 42
 VAL_FRAC = 0.10  # fraction of the KB split held out for threshold tuning
 
 # Escalation gate thresholds (placeholders: tune on val)
-TAU_CONF = 0.50  # min confidence for type and priority
+TAU_CONF = 0.55  # min type/priority confidence. Val: escalates 16.9%, flagged acc 0.32 vs kept 0.62, HP-Incident caught 0.70->0.78
 TAU_SIM = 0.50   # min top-1 similarity (embedding). Val p1=0.75, out-of-scope max=0.39, short live queries ~0.58-0.72
 TOP_K = 5
 
