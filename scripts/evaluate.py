@@ -41,7 +41,7 @@ def main() -> None:
     # Gate (pre-generation rules) on a sample: escalation recall on true HP incidents + overall escalation rate
     rng = np.random.default_rng(config.SEED)
     idx = rng.choice(len(inputs), size=min(args.gate_sample, len(inputs)), replace=False)
-    escalated, lat = [], []
+    escalated, r1, r3, top1, lat = [], [], [], [], []
     for i in idx:
         text = build_text(inputs["subject"].iloc[i], inputs["body"].iloc[i])
         t = time.perf_counter()
@@ -49,9 +49,18 @@ def main() -> None:
         pre = gate.pre_check(text, preds[i], hits)
         lat.append((time.perf_counter() - t) * 1000)
         escalated.append(bool(pre["rules"]))
-    escalated = np.array(escalated)
+        r1.append("R1" in pre["rules"])
+        r3.append("R3" in pre["rules"])
+        top1.append(hits[0]["score"] if hits else 0.0)
+    escalated, r1, r3 = np.array(escalated), np.array(r1), np.array(r3)
+    hp = is_hpi[idx]
     metrics["gate_sample"] = {
-        "n": len(idx), "escalation_rate": round(float(escalated.mean()), 4),
+        "n": len(idx), "retrieval_backend": retrieval.active_backend(), "tau_sim": config.TAU_SIM,
+        "escalation_rate": round(float(escalated.mean()), 4),
+        "r1_severity_rate": round(float(r1.mean()), 4),
+        "r3_no_precedent_rate": round(float(r3.mean()), 4),
+        "hp_incident_escalation_precision": round(float(hp[escalated].mean()), 4) if escalated.any() else None,
+        "top1_similarity_p5_p50": [round(float(np.percentile(top1, q)), 3) for q in (5, 50)],
         "hp_incident_escalation_recall": round(float(escalated[is_hpi[idx]].mean()), 4) if is_hpi[idx].any() else None,
         "retrieval_gate_ms_p50": round(float(np.percentile(lat, 50)), 1),
         "retrieval_gate_ms_p95": round(float(np.percentile(lat, 95)), 1),

@@ -46,7 +46,11 @@ def _get_client():
     return _client
 
 
-def build_record(subject: str | None, body: str, result: dict) -> tuple[str, str, dict]:
+def new_ticket_id() -> str:
+    return f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S}-{uuid.uuid4().hex[:8]}"
+
+
+def build_record(subject: str | None, body: str, result: dict, client_id: str | None = None) -> tuple[str, str, dict]:
     """Return (object_name, ticket_id, record). Pure function, easy to test."""
     now = datetime.now(timezone.utc)
     ticket_id = f"{now:%Y%m%dT%H%M%S}-{uuid.uuid4().hex[:8]}"
@@ -59,6 +63,7 @@ def build_record(subject: str | None, body: str, result: dict) -> tuple[str, str
         pii = {k: c1.get(k, 0) + c2.get(k, 0) for k in {*c1, *c2}}
     record = {
         "ticket_id": ticket_id,
+        "client_id": client_id,
         "received_at": now.isoformat(),
         "subject": subject_out,
         "body": body_out,
@@ -69,13 +74,13 @@ def build_record(subject: str | None, body: str, result: dict) -> tuple[str, str
     return f"{_prefix()}/{now:%Y-%m-%d}/{ticket_id}.json", ticket_id, record
 
 
-def save_ticket(subject: str | None, body: str, result: dict) -> None:
-    """Upload one ticket. Never raises."""
+def save_ticket(subject: str | None, body: str, result: dict, client_id: str | None = None) -> str | None:
+    """Upload one ticket and return its id (None if disabled or failed). Never raises."""
     name = bucket_name()
     if not name:
-        return
+        return None
     try:
-        object_name, ticket_id, record = build_record(subject, body, result)
+        object_name, ticket_id, record = build_record(subject, body, result, client_id)
         blob = _get_client().bucket(name).blob(object_name)
         blob.upload_from_string(
             json.dumps(record, ensure_ascii=False, indent=2),
@@ -83,8 +88,10 @@ def save_ticket(subject: str | None, body: str, result: dict) -> None:
             if_generation_match=0,  # never overwrite an existing object
         )
         log.info("stored ticket %s -> gs://%s/%s", ticket_id, name, object_name)
+        return ticket_id
     except Exception:
         log.exception("could not store ticket in gs://%s", name)
+        return None
 
 
 def list_recent(limit: int = 30) -> list[dict]:
@@ -124,6 +131,7 @@ def list_recent(limit: int = 30) -> list[dict]:
                         out.append(
                             {
                                 "ticket_id": r.get("ticket_id"),
+                                "client_id": r.get("client_id"),
                                 "received_at": r.get("received_at"),
                                 "subject": r.get("subject", ""),
                                 "body": r.get("body", ""),
