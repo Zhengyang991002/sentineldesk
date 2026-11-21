@@ -54,10 +54,7 @@ check in `explore.py`. EDA output for the KB lives in `data/EDA.md`.
 
 ## Run the demo
 
-Local demo only. By default the API answers with the mock pipeline in `app/mocks.py`. Set
-`PIPELINE_MODE=real` (or `auto`, which falls back to the mock if loading fails) to run
-`src/pipeline.py` instead; `GET /health` shows the active mode. How the pieces fit together, what
-is still a mock and where to plug in the rest is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Local demo only. The API always runs the real pipeline in `src/pipeline.py`; model artifacts and the KB must exist or the API will not start. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ```bash
 pip install -r requirements.txt
@@ -123,4 +120,32 @@ echo "GCS_BUCKET=YOUR_BUCKET" >> .env      # then restart uvicorn
 The console's **History** menu lists past tickets from the bucket (`GET /tickets?limit=30`, newest
 first, PII-masked) and re-opens a stored result without re-analyzing it. If Storage is not
 configured or unreachable it falls back to this browser's local history.
+
+## Client registry (BigQuery)
+
+Clients are tracked **pseudonymously**. For every analyzed ticket the backend looks for an email,
+account number or phone, derives `client_id = "cust_" + HMAC-SHA256(CLIENT_ID_SALT, "<kind>:<value>")`
+and appends a row to BigQuery. The raw email/number is used only in memory and is never stored; the
+id cannot be reversed without the secret. Cards, IBANs and IPs are never used as identifiers.
+
+- Table `<dataset>.client_tickets`: one row per ticket (client_id, id_kind, ticket_id, received_at,
+  language, type, queue, priority, escalated, pii_kinds). Append-only.
+- View `<dataset>.clients`: one row per client (first/last seen, ticket and escalation counts,
+  languages, queues).
+- Dataset, table and view are created on first use. The account behind
+  `gcloud auth application-default login` needs *BigQuery Data Editor* and *BigQuery Job User*.
+- Enable with `BQ_DATASET` and `CLIENT_ID_SALT` in `.env`. **Keep the salt stable and out of git:**
+  changing it changes every client id. `GET /clients` returns the view; `GET /health` shows
+  `clients.configured`.
+- Tickets without an identifier are stored in Cloud Storage as usual but get no client row.
+- Every ticket is linked to its client. `POST /triage` returns an extra `client` field
+  (`{"client_id", "id_kind"}`, or `null` when the ticket has no identifier), the stored JSON keeps it, and
+  `GET /tickets` returns it. The console shows it as a masked reference ("Client: cust_7db4…b57a"):
+  clicking it opens the Clients page filtered to that client, and History and the topbar search show
+  and match it. The email / account / phone is never shown or stored.
+- Clients can also be added by hand: `POST /clients {"kind": "email" | "account" | "phone", "value": "..."}`
+  (the *Add client* button on the Clients page). The value is normalized exactly like a ticket's, hashed
+  and **not stored**, so a manually added client and a later ticket from the same person share one
+  `client_id`. A manual client has no ticket (`ticket_id` is NULL) and shows 0 tickets until one arrives.
+  Adding an existing client is a no-op. Only the hash is kept, so there are no names or display labels.
 

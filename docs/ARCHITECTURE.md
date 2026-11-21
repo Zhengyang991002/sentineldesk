@@ -10,13 +10,12 @@ plug in the rest.
    │  fetch /triage /chat /tickets /health        (web/src/api/client.js, proxied by Vite in dev)
    ▼
  FastAPI (app/main.py)
-   ├─ POST /triage ─► app/pipeline.py ──► PIPELINE_MODE=mock ─► app/mocks.py
-   │                                  └─► PIPELINE_MODE=real ─► src/pipeline.py
+   ├─ POST /triage ─► app/pipeline.py ──► src/pipeline.py
    │                                         ├─ src/lang.py       language (en | de)
    │                                         ├─ src/pii.py        mask text before it leaves the machine
    │                                         ├─ src/triage.py     type / queue / priority classifier
    │                                         ├─ src/retrieval.py  top-k similar resolved tickets
-   │                                         ├─ src/gate.py       escalation rules R1-R6
+   │                                         ├─ src/gate.py       escalate on R1 (very high severity) or R3 (no similar resolved case)
    │                                         └─ src/generate.py   grounded reply with citations
    │              └─► app/storage.py  (background task) saves the ticket to Cloud Storage
    ├─ POST /chat ───► app/chat.py     Gemini on Vertex AI, answers from the analyzed ticket
@@ -28,7 +27,7 @@ plug in the rest.
 
 | Path | Role |
 |---|---|
-| `app/` | HTTP layer. `main.py` routes, `pipeline.py` mode switch and response mapping, `mocks.py`, `chat.py`, `storage.py`, `privacy.py` |
+| `app/` | HTTP layer. `main.py` routes, `pipeline.py` response mapping, `chat.py`, `storage.py`, `privacy.py` |
 | `src/` | The ML pipeline. Owned per module (see README). Contracts are in each module's docstring |
 | `scripts/` | `prepare_data.py` (download and split), `evaluate.py` (scores on the held-out test split) |
 | `data/`, `artifacts/`, `reports/` | Parquet splits, trained models, validation reports. Git-ignored except `reports/` |
@@ -62,8 +61,10 @@ Response, identical in every pipeline mode (`TriageResult` in `web/src/api/clien
   "language": "en",
   "latency_ms": 12,
   "stage_ms": { "triage": 8, "retrieve": 3, "gate": 0, "draft": 1 },
-  "escalation": { "escalate": true, "reason": "High-priority Incident: page the on-call engineer" },
-  "retrieved": [ { "ticket_id": "TKT-01482", "score": 0.87, "answer": "..." } ],
+  "escalation": { "escalate": true, "reason": "Very high severity: high-priority Incident: hand over to a supervisor",
+                  "rules": ["R1"], "reasons": ["..."], "flags": [], "flag_reasons": [] },
+  "pii_masked": { "email": 1 },
+  "retrieved": [ { "ticket_id": "TKT-01482", "score": 0.87, "answer": "...", "language": "en", "subject": "..." } ],
   "draft": { "reply": "...", "cited_ids": ["TKT-01482"] }
 }
 ```
@@ -78,17 +79,17 @@ Returns `{ "reply", "model" }`. 503 if Gemini is not configured, 502 if the call
 `GET /tickets?limit=30` returns `{ "configured": bool, "tickets": [{ ticket_id, received_at, subject, body, result }] }`,
 newest first, PII-masked.
 
-`GET /health` returns `{ status, pipeline: { mode, mocked }, gemini: { configured, model }, storage: { configured, bucket } }`.
+`GET /health` returns `{ status, pipeline: { mode, retrieval, classifier }, gemini: { configured, model }, storage: { configured, bucket } }`.
 
 ## What is real and what is a mock
 
 | Piece | State | Where | To make it real |
 |---|---|---|---|
-| Classifier (type, queue, priority) | Real, TF-IDF + logistic regression | `src/triage.py`, `artifacts/triage.joblib` | Retrain with `python -m src.triage` |
-| Retrieval | Real but TF-IDF stand-in | `src/retrieval.py` | Implement `build()` with multilingual embeddings + FAISS (see its docstring), then retune `TAU_SIM` in `src/config.py` |
-| Escalation gate | Real | `src/gate.py` | Tune thresholds in `src/config.py` on the validation split only |
+| Classifier (type, queue, priority) | Real, calibrated ensemble of TF-IDF LR + kNN votes over char n-grams + kNN votes over multilingual embeddings (val macro-F1 type 0.930 / queue 0.794 / priority 0.833; test split never used); falls back to the TF-IDF + LR baseline if missing. Per-language eval: `python -m scripts.eval_by_language` | `src/triage.py`, `src/sentinel_classifier.py`, `artifacts/sentinel_model/` (model.joblib, kb.parquet, kb_emb.npy; fallback `artifacts/triage.joblib`) | Needs `scikit-learn==1.9.1`; retrain with `python -m src.sentinel_classifier train data/raw/tickets.csv artifacts/sentinel_model` |
+| Retrieval (RAG over resolved tickets) | Real: multilingual MiniLM embeddings (fastembed) + FAISS over the KB fit split, cross-lingual EN/DE; TF-IDF fallback if the embedding files are missing | `src/retrieval.py`, `artifacts/kb_emb.npy`, `artifacts/kb_emb_ids.npy` | Rebuild with `python -m src.retrieval`; try `python -m src.retrieval --query "..."`; retune `TAU_SIM` with `python -m scripts.tune_sim` |
+| Escalation gate | Real. Escalates to a supervisor only if severity is very high (R1: classifier high-priority Incident, calibrated HPI score, or critical keyword) or there is no similar resolved case (R3: best precedent with an answer < `TAU_SIM`). R4/R5/R6 are flags shown next to the draft, never escalate; R5 (injection) skips the LLM | `src/gate.py`, `src/config.py` | Smoke test: `python -m scripts.test_gate` |
 | Reply generation | Extractive fallback only | `src/generate.py` | Implement `_llm_draft()` (config names `LLM_MODEL`); the fallback already handles errors |
-| API in front of the pipeline | Runs the **mock** by default | `app/pipeline.py`, `app/mocks.py` | Set `PIPELINE_MODE=real` (or `auto`). Verified end to end |
+| API in front of the pipeline | Always runs the real pipeline | `app/pipeline.py` | Verified end to end |
 | Gemini chat | Real, Vertex AI | `app/chat.py` | Needs credentials, see README |
 | Ticket storage and History menu | Real, Cloud Storage | `app/storage.py`, `HistoryMenu.jsx` | Set `GCS_BUCKET` |
 | Progress stepper | Mock: advances on a timer | `Progress.jsx`, `config.js` (`STEP_MS`) | Stream stage events from the backend (SSE or polling) and drive the stepper from them; then set `STEP_MS` to 0 |
@@ -98,26 +99,12 @@ newest first, PII-masked.
 | Local chat fallback | Mock rule-based answers | `mocks/chatFallback.js` | Delete once Gemini is always configured |
 | Outage burst detection | Not wired into the API | `src/burst.py` | Call `BurstDetector.add` from the `/triage` handler, add a `burst` field to the response and show a banner in `Result.jsx` |
 
-## Switching the API from mock to real
-
-1. `python -m scripts.prepare_data` and `python -m src.triage` so `data/` and `artifacts/` exist.
-2. Put `PIPELINE_MODE=real` in `.env` (or `auto` to fall back to the mock when loading fails).
-3. Start the API and open `GET /health`: `pipeline.mode` must be `real`. Startup loads the model and
-   builds the retrieval index, so the first request is not slow.
-4. If a real stage needs to return something the UI does not show yet, add the field in
-   `_to_api_result` (`app/pipeline.py`), the `TriageResult` type in `web/src/api/client.js`, and the
-   component that renders it. The mock in `app/mocks.py` does not need to keep up.
-
-The real gate currently escalates more often than the mock (retrieval similarity is low with TF-IDF).
-That is a tuning task for `src/config.py`, not a wiring problem.
-
 ## Configuration
 
 Read from the environment or `.env` (see `.env.example`).
 
 | Variable | Used by | Meaning |
 |---|---|---|
-| `PIPELINE_MODE` | `app/pipeline.py` | `mock` (default), `real`, `auto` |
 | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `VERTEX_API_KEY`, `GEMINI_MODEL` | `app/chat.py` | Gemini via Vertex AI |
 | `GCS_BUCKET`, `GCS_PREFIX`, `GCS_STORE_RAW` | `app/storage.py` | Ticket storage. Off unless `GCS_BUCKET` is set |
 
