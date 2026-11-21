@@ -1,4 +1,5 @@
 """Shared paths and tunable constants. Tune thresholds on the VAL split only, never on test."""
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,9 +20,9 @@ VAL_FRAC = 0.10  # fraction of the KB split held out for threshold tuning
 
 # Escalation gate thresholds (placeholders: tune on val)
 TAU_CONF = 0.50  # min confidence for type and priority
-TAU_SIM = 0.15   # min top-1 retrieval similarity. Set for the TF-IDF stub (top-1 ~0.1-0.3); RETUNE on val once embeddings land
+TAU_SIM = 0.50   # min top-1 similarity (embedding). Val p1=0.75, out-of-scope max=0.39, short live queries ~0.58-0.72
 TOP_K = 5
 
 # LLM
-LLM_MODEL = "claude-opus-5-5"
+LLM_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")  # Vertex AI, see .env.example
 LLM_MAX_TOKENS = 1500
