@@ -8,16 +8,7 @@ const STATUS_TAG = {
   error: '! Error',
 }
 
-// Storage line at the bottom of the sidebar, derived from GET /health.
-function storageStatus(health) {
-  if (health === null) return { text: 'Checking storage…' }
-  if (health && health.storage && health.storage.configured) return { bucket: health.storage.bucket }
-  return { text: 'Storage not configured' }
-}
-
-export default function Sidebar({ collapsed, onToggle, console: c }) {
-  const storage = storageStatus(c.health)
-  const storageTitle = storage.bucket ? `DB at ${storage.bucket}` : storage.text
+export default function Sidebar({ collapsed, onToggle, console: c, page, onNavigate }) {
   const total = c.samples.length
 
   if (collapsed) {
@@ -27,9 +18,46 @@ export default function Sidebar({ collapsed, onToggle, console: c }) {
           <Icon name="expand" />
         </button>
         <nav className="rail">
-          <div className="rail-btn active" title="Triage console" aria-current="page">
+          <button
+            type="button"
+            className={`rail-btn ${page === 'triage' ? 'active' : ''}`}
+            onClick={() => onNavigate('triage')}
+            aria-current={page === 'triage' ? 'page' : undefined}
+            aria-label="Triage console"
+            title="Triage console"
+          >
             <Icon name="home" strokeWidth={1.8} />
-          </div>
+          </button>
+          <button
+            type="button"
+            className={`rail-btn ${page === 'clients' ? 'active' : ''}`}
+            onClick={() => onNavigate('clients')}
+            aria-current={page === 'clients' ? 'page' : undefined}
+            aria-label="Clients"
+            title="Clients"
+          >
+            <Icon name="clients" strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            className={`rail-btn ${page === 'managers' ? 'active' : ''}`}
+            onClick={() => onNavigate('managers')}
+            aria-current={page === 'managers' ? 'page' : undefined}
+            aria-label="Managers"
+            title="Managers"
+          >
+            <Icon name="user" strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            className={`rail-btn ${page === 'models' ? 'active' : ''}`}
+            onClick={() => onNavigate('models')}
+            aria-current={page === 'models' ? 'page' : undefined}
+            aria-label="Models"
+            title="Models"
+          >
+            <Icon name="db" strokeWidth={1.8} />
+          </button>
           <button
             type="button"
             className="rail-btn"
@@ -47,7 +75,7 @@ export default function Sidebar({ collapsed, onToggle, console: c }) {
               type="button"
               key={s.id}
               className={`rail-btn ${c.activeSample === s.id ? 'active' : ''}`}
-              onClick={() => c.loadSample(s)}
+              onClick={() => { onNavigate('triage'); c.loadSample(s) }}
               disabled={c.bulk}
               aria-label={s.label}
               title={s.label}
@@ -58,7 +86,6 @@ export default function Sidebar({ collapsed, onToggle, console: c }) {
           ))}
         </nav>
         <div className="rail-bottom">
-          <div className="rail-btn" title={storageTitle}><Icon name="db" strokeWidth={1.8} /></div>
           <div className="rail-btn" title={`${OPERATOR.name} · ${OPERATOR.role}`}><Icon name="user" strokeWidth={1.8} /></div>
         </div>
       </aside>
@@ -68,7 +95,6 @@ export default function Sidebar({ collapsed, onToggle, console: c }) {
   return (
     <aside className="sidebar" aria-label="Navigation">
       <div className="brand">
-        <span className="brand-a">Sentinel</span><span className="brand-b">Desk</span>
         <button type="button" className="icon-btn brand-toggle sidebar-toggle" onClick={onToggle} aria-label="Collapse sidebar" title="Collapse sidebar">
           <Icon name="collapse" />
         </button>
@@ -76,7 +102,38 @@ export default function Sidebar({ collapsed, onToggle, console: c }) {
 
       <nav>
         <div className="nav-label">Main</div>
-        <div className="nav-item active" aria-current="page">Triage console</div>
+        <button
+          type="button"
+          className={`nav-item ${page === 'triage' ? 'active' : ''}`}
+          aria-current={page === 'triage' ? 'page' : undefined}
+          onClick={() => onNavigate('triage')}
+        >
+          Triage console
+        </button>
+        <button
+          type="button"
+          className={`nav-item ${page === 'clients' ? 'active' : ''}`}
+          aria-current={page === 'clients' ? 'page' : undefined}
+          onClick={() => onNavigate('clients')}
+        >
+          Clients
+        </button>
+        <button
+          type="button"
+          className={`nav-item ${page === 'managers' ? 'active' : ''}`}
+          aria-current={page === 'managers' ? 'page' : undefined}
+          onClick={() => onNavigate('managers')}
+        >
+          Managers
+        </button>
+        <button
+          type="button"
+          className={`nav-item ${page === 'models' ? 'active' : ''}`}
+          aria-current={page === 'models' ? 'page' : undefined}
+          onClick={() => onNavigate('models')}
+        >
+          Models
+        </button>
 
         <div className="nav-label">Queue</div>
         <div className="queue">
@@ -110,7 +167,7 @@ export default function Sidebar({ collapsed, onToggle, console: c }) {
             type="button"
             key={s.id}
             className={`nav-item ${c.activeSample === s.id ? 'active' : ''}`}
-            onClick={() => c.loadSample(s)}
+            onClick={() => { onNavigate('triage'); c.loadSample(s) }}
             disabled={c.bulk}
           >
             <span>{s.label}</span>
@@ -118,10 +175,6 @@ export default function Sidebar({ collapsed, onToggle, console: c }) {
           </button>
         ))}
       </nav>
-
-      <div className="db-source" title="Cloud Storage bucket where analyzed tickets are stored">
-        {storage.bucket ? <span>DB at <code>{storage.bucket}</code></span> : <span>{storage.text}</span>}
-      </div>
 
       <div className="role">
         <div className="role-text">

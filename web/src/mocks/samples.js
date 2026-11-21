@@ -25,4 +25,23 @@ export const SAMPLES = [
     subject: 'Recommendation',
     body: 'Can you recommend a good pizza place in Madrid for our team dinner next week?',
   },
+  // The next three describe the same VPN failure, in two languages: run them to raise the outage banner.
+  {
+    id: 'vpn-1',
+    label: 'VPN down (EN)',
+    subject: 'VPN not working',
+    body: 'Our VPN is not working since this morning. I cannot connect to the office network.',
+  },
+  {
+    id: 'vpn-2',
+    label: 'VPN Ausfall (DE)',
+    subject: 'VPN Problem',
+    body: 'Mein VPN funktioniert seit heute Morgen nicht mehr, ich bekomme keine Verbindung zum Firmennetz.',
+  },
+  {
+    id: 'vpn-3',
+    label: 'VPN login failing',
+    subject: 'Cannot connect to VPN',
+    body: 'The VPN client fails with an authentication error and times out for the whole sales team.',
+  },
 ]

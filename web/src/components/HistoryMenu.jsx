@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as api from '../api/client.js'
 import { REMOTE_HISTORY_LIMIT } from '../config.js'
+import { resultWithClient, shortId } from '../clientId.js'
 import Icon from './Icon.jsx'
 
 const formatTime = (t) =>
@@ -12,7 +13,7 @@ const fromStorageRow = (t) => ({
   at: Date.parse(t.received_at),
   subject: t.subject || '',
   body: t.body || '',
-  result: t.result,
+  result: resultWithClient(t),
 })
 
 // Lists past tickets. Source is Cloud Storage when the backend has it configured,
@@ -99,6 +100,7 @@ export default function HistoryMenu({ localItems, onClearLocal, onOpen, disabled
                       <span className="history-title">{h.subject.trim() || h.body.trim()}</span>
                       <span className="history-meta">
                         {formatTime(h.at)} · {h.result.priority} · {h.result.escalation.escalate ? 'escalated' : 'drafted'}
+                        {h.result.client && ` · ${shortId(h.result.client.client_id)}`}
                       </span>
                     </button>
                   ))}

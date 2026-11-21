@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { KIND_LABEL, shortId } from '../clientId.js'
 import { ON_CALL } from '../mocks/onCall.js'
 
 const pct = (x) => `${Math.round(x * 100)}%`
@@ -6,7 +7,7 @@ const PRECEDENT_PREVIEW_CHARS = 240
 
 // Right-hand panel for a finished analysis: gate decision, classification, latency, precedents.
 // `precedents` carries the list controls owned by useConsole (filters, highlight, scroll refs).
-export default function Result({ result, precedents }) {
+export default function Result({ result, precedents, onOpenClient, assignment }) {
   const { escalation } = result
   const { query, setQuery, minSim, setMinSim, highlight, refs } = precedents
   const needle = query.trim().toLowerCase()
@@ -22,14 +23,23 @@ export default function Result({ result, precedents }) {
         <span className="statusbar-text">
           <span className="statusbar-title">
             <span aria-hidden="true">{escalation.escalate ? '▲' : '✓'}</span>{' '}
-            {escalation.escalate ? 'Escalate to On-Call Engineer' : 'Auto-Draft Ready'}
+            {escalation.escalate ? 'Escalate to Supervisor' : 'Auto-Draft Ready'}
           </span>
-          <span className="statusbar-reason">{escalation.reason}</span>
+          <span className="statusbar-reason">
+            {escalation.reason}
+            {escalation.decided_by && (
+              <span className="muted"> · decided by {{ agent: "Gemini agent", ml: "ML model", rule: "no-precedent rule (agent unavailable)" }[escalation.decided_by] || escalation.decided_by}</span>
+            )}
+          </span>
         </span>
         {escalation.escalate && (
           <span className="managers" role="group" aria-label="Human input required: on-call managers" title="Human input required">
             {ON_CALL.map((person) => (
-              <span className="manager" key={person.id}>
+              <span
+                className={`manager ${assignment.data?.manager_id === person.id ? 'picked' : ''}`}
+                key={person.id}
+                title={person.name}
+              >
                 <img
                   src={person.photo}
                   alt={person.name}
@@ -40,6 +50,16 @@ export default function Result({ result, precedents }) {
           </span>
         )}
       </div>
+
+      {!escalation.escalate && escalation.flag_reasons?.length > 0 && (
+        <ul className="flags" aria-label="Review before sending">
+          {escalation.flag_reasons.map((reason, i) => (
+            <li key={i}>
+              <span aria-hidden="true">⚠</span> {reason}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="cards">
         <ConfidenceCard title="Type" label={result.type} confidence={result.confidences.type} />
@@ -56,6 +76,18 @@ export default function Result({ result, precedents }) {
         <span className="lang">
           Language: <Flag lang={result.language} /> <strong>{result.language.toUpperCase()}</strong>
         </span>
+        {result.client && (
+          <button
+            type="button"
+            className="client-chip"
+            onClick={() => onOpenClient?.(result.client.client_id)}
+            title={`${result.client.client_id}. Open this client`}
+          >
+            Client: <code>{shortId(result.client.client_id)}</code>
+            {result.client.id_kind && <span className="client-kind"> · {KIND_LABEL[result.client.id_kind] || result.client.id_kind}</span>}
+          </button>
+        )}
+        {result.client === null && <span className="muted">Client: not identified</span>}
         <span className="latency" tabIndex={0} aria-describedby="stage-tip">
           Latency: <strong>{result.latency_ms} ms</strong>
           <span id="stage-tip" role="tooltip" className="tip">
@@ -117,6 +149,7 @@ function Precedent({ precedent, active, refCallback }) {
     <li ref={refCallback} className={`precedent ${active ? 'active' : ''}`}>
       <div className="p-head">
         <code>{precedent.ticket_id}</code>
+        {precedent.language && <span className="muted">{precedent.language.toUpperCase()}</span>}
         <span className="score">sim {precedent.score.toFixed(2)}</span>
       </div>
       <p>{text}</p>

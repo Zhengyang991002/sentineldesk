@@ -6,10 +6,13 @@ export const REPO_URL = 'https://github.com/Zhengyang991002/sentineldesk'
 export const STORAGE_KEYS = {
   history: 'sentineldesk.history',
   sidebarCollapsed: 'sentineldesk.sidebar.collapsed',
+  page: 'sentineldesk.page',
 }
 
 export const LOCAL_HISTORY_MAX = 20
 export const REMOTE_HISTORY_LIMIT = 30
+export const CLIENTS_LIMIT = 50
+export const BURST_POLL_MS = 15000
 
 // Stages shown in the progress stepper, in pipeline order. Keys match `stage_ms` in the /triage response.
 export const PIPELINE_STEPS = [

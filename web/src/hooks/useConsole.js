@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as api from '../api/client.js'
-import { BULK_PAUSE_MS, MIN_ANALYSIS_MS } from '../config.js'
+import { BULK_PAUSE_MS, BURST_POLL_MS, CLIENTS_LIMIT, MIN_ANALYSIS_MS } from '../config.js'
 import { SAMPLES } from '../mocks/samples.js'
 import useHistory from './useHistory.js'
 
@@ -15,6 +15,8 @@ const pendingQueue = () => Object.fromEntries(SAMPLES.map((s) => [s.id, 'pending
 export default function useConsole() {
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [clientId, setClientId] = useState('') // '' = detect the client from the ticket text
+  const [clientList, setClientList] = useState([]) // pseudonymous clients for the picker
   const [status, setStatus] = useState('idle')
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
@@ -22,6 +24,7 @@ export default function useConsole() {
   const [activeSample, setActiveSample] = useState(null)
   const [queue, setQueue] = useState(pendingQueue)
   const [bulk, setBulk] = useState(false)
+  const [burst, setBurst] = useState(null) // outage cluster among recent tickets
 
   // Precedent list controls. Kept here because a draft citation scrolls to a precedent.
   const [highlight, setHighlight] = useState(null)
@@ -36,6 +39,19 @@ export default function useConsole() {
     api.getHealth().then(setHealth).catch(() => setHealth(false))
   }, [])
 
+  const reloadClients = () => api.listClients(CLIENTS_LIMIT).then((d) => setClientList(d.clients || [])).catch(() => {})
+  useEffect(() => {
+    reloadClients()
+  }, [])
+
+  // Outage banner: refreshed on a timer (so it clears when the window passes) and by each triage result.
+  useEffect(() => {
+    const poll = () => api.getBurst().then(setBurst).catch(() => {})
+    poll()
+    const id = setInterval(poll, BURST_POLL_MS)
+    return () => clearInterval(id)
+  }, [])
+
   useEffect(() => {
     setQuery('')
     setMinSim(0)
@@ -44,9 +60,10 @@ export default function useConsole() {
   const canSubmit = body.trim().length > 0 && status !== 'loading' && !bulk
   const storageEnabled = Boolean(health && health.storage && health.storage.configured)
 
-  async function runTriage(subj, text, signal) {
+  async function runTriage(subj, text, signal, client = null) {
     const startedAt = performance.now()
-    const data = await api.triage({ subject: subj.trim() ? subj : null, body: text }, signal)
+    const data = await api.triage({ subject: subj.trim() ? subj : null, body: text, client }, signal)
+    if (data.burst) setBurst(data.burst)
     // MOCK pacing so the stepper is readable; see config.js
     await sleep(Math.max(0, MIN_ANALYSIS_MS - (performance.now() - startedAt)))
     return data
@@ -61,7 +78,8 @@ export default function useConsole() {
     setError('')
     setHighlight(null)
     try {
-      const data = await runTriage(subject, body, ctrl.signal)
+      const picked = clientList.find((c) => c.client_id === clientId) || null
+      const data = await runTriage(subject, body, ctrl.signal, picked)
       if (ctrl.signal.aborted) return
       setResult(data)
       setStatus('done')
@@ -118,6 +136,19 @@ export default function useConsole() {
     setStatus('done')
   }
 
+  // Back to a blank form with no ticket open.
+  function clear() {
+    abortRef.current?.abort()
+    setClientId('')
+    setSubject('')
+    setBody('')
+    setActiveSample(null)
+    setHighlight(null)
+    setError('')
+    setResult(null)
+    setStatus('idle')
+  }
+
   // Filters are cleared first so the cited precedent is guaranteed to be in the list.
   function jumpToPrecedent(id) {
     setQuery('')
@@ -134,7 +165,8 @@ export default function useConsole() {
 
   return {
     // form
-    subject, setSubject, body, setBody, canSubmit, analyze,
+    subject, setSubject, body, setBody, canSubmit, analyze, clear,
+    clientId, setClientId, clientList, reloadClients,
     // outcome
     status, result, error,
     // samples and queue
@@ -146,5 +178,7 @@ export default function useConsole() {
     history, openPast,
     // backend status
     health, storageEnabled,
+    // outage detection
+    burst,
   }
 }
