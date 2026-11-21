@@ -37,7 +37,17 @@ def run(subject, body) -> dict:
     }
 
 
+def warmup() -> float:
+    """Load all models/indexes once (call at app start, e.g. inside st.cache_resource). Returns ms."""
+    t0 = time.perf_counter()
+    lang.detect("warm up the language detector")
+    triage.predict(None, "warm up")
+    retrieval.search("warm up the embedding model and index", k=1)
+    return round((time.perf_counter() - t0) * 1000, 1)
+
+
 if __name__ == "__main__":
+    print(f"warmup: {warmup()} ms")
     import json
     out = run(None, "Our VPN has been down since 8am and the hospital cannot reach the EMR system. Contact me at a.b@x.com")
     out["hits"] = [{k: h[k] for k in ("ticket_id", "score", "language")} for h in out["hits"]]
