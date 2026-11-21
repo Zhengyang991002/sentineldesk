@@ -19,7 +19,7 @@ VAL_FRAC = 0.10  # fraction of the KB split held out for threshold tuning
 
 # Escalation gate thresholds (placeholders: tune on val)
 TAU_CONF = 0.50  # min confidence for type and priority
-TAU_SIM = 0.15   # min top-1 retrieval similarity. Set for the TF-IDF stub (top-1 ~0.1-0.3); RETUNE on val once embeddings land
+TAU_SIM = 0.55   # min top-1 similarity (embedding). Val p1=0.75, out-of-scope max=0.39, short real queries ~0.65-0.70
 TOP_K = 5
 
 # LLM
