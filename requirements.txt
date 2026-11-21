@@ -8,3 +8,9 @@ faiss-cpu
 anthropic
 streamlit
 langdetect
+datasets
+fastapi
+uvicorn
+google-genai
+python-dotenv
+google-cloud-storage
