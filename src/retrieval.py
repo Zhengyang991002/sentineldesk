@@ -6,10 +6,13 @@ CONTRACT:
          "answer": str, "type": str, "queue": str, "priority": str},
         ...  # sorted by score desc; score = cosine similarity
     ]
+    active_backend() -> "embedding" | "tfidf"   # tfidf only when the embedding files are missing
 
 Build the embedding index:
-    python -m src.retrieval --chunks 2   # quick dev index (2,048 tickets, ~5 min on the Intel Mac)
-    python -m src.retrieval              # full KB (~50 min on the Intel Mac); resumes finished chunks
+    python -m src.retrieval --chunks 2   # quick dev index (2,048 tickets)
+    python -m src.retrieval              # full KB; resumes finished chunks
+Try a query:
+    python -m src.retrieval --query "Mein VPN funktioniert seit heute Morgen nicht mehr"
 """
 import argparse
 import math
@@ -29,6 +32,7 @@ IDS_PATH = config.ARTIFACTS / "kb_emb_ids.npy"
 
 _tfidf = None
 _embedder = None
+_emb = None
 
 
 def _kb_texts(kb) -> list[str]:
@@ -73,10 +77,44 @@ def build(max_chunks: int | None = None) -> None:
     print(f"index: {len(vecs)}/{len(texts)} KB tickets embedded, dim={vecs.shape[1]} -> {EMB_PATH.name}")
 
 
-# ---------- search (Step 2 replaces this TF-IDF version with FAISS) ----------
+# ---------- search ----------
+
+def _s(value) -> str:
+    return "" if value is None or (isinstance(value, float) and value != value) else str(value)
+
+
+def _hit(rows, i, score) -> dict:
+    row = rows.iloc[int(i)]
+    return {"ticket_id": row["ticket_id"], "score": float(score), "language": row["language"],
+            "subject": _s(row["subject"]), "answer": _s(row["answer"]),
+            "type": row["type"], "queue": row["queue"], "priority": row["priority"]}
+
+
+def _emb_index():
+    """FAISS inner-product index over saved embeddings (= cosine, vectors are normalised).
+    Rows are aligned to the KB by ticket_id, not by position. Returns None if not built yet."""
+    global _emb
+    if _emb is None and EMB_PATH.exists() and IDS_PATH.exists():
+        import faiss
+        vecs = np.ascontiguousarray(np.load(EMB_PATH), dtype="float32")
+        ids = np.load(IDS_PATH)
+        if len(vecs) != len(ids):
+            raise RuntimeError(f"{EMB_PATH.name} has {len(vecs)} rows but {IDS_PATH.name} has {len(ids)}")
+        kb = load_kb("fit").set_index("ticket_id", drop=False)
+        missing = [t for t in ids if t not in kb.index]
+        if missing:
+            raise RuntimeError(f"{len(missing)} embedded ids are not in the local KB (e.g. {missing[0]}): "
+                               "embeddings were built from a different split; rerun prepare_data or rebuild")
+        if len(ids) < len(kb):
+            print(f"[retrieval] WARNING: partial index, {len(ids)}/{len(kb)} KB tickets embedded")
+        index = faiss.IndexFlatIP(vecs.shape[1])
+        index.add(vecs)
+        _emb = (index, kb.loc[ids].reset_index(drop=True))  # row i <-> vecs[i]
+    return _emb
+
 
 def _tfidf_index():
-    """Fallback: word TF-IDF cosine over the fit KB. Works with no embeddings."""
+    """Fallback only: word TF-IDF cosine over the fit KB (no cross-lingual matching)."""
     global _tfidf
     if _tfidf is None:
         from sklearn.feature_extraction.text import TfidfVectorizer
@@ -87,25 +125,36 @@ def _tfidf_index():
     return _tfidf
 
 
-def _s(value) -> str:
-    return "" if value is None or (isinstance(value, float) and value != value) else str(value)
-
-
-def _hit(kb, i, score) -> dict:
-    row = kb.iloc[i]
-    return {"ticket_id": row["ticket_id"], "score": float(score), "language": row["language"],
-            "subject": _s(row["subject"]), "answer": _s(row["answer"]),
-            "type": row["type"], "queue": row["queue"], "priority": row["priority"]}
+def active_backend() -> str:
+    return "embedding" if _emb_index() is not None else "tfidf"
 
 
 def search(text: str, k: int = config.TOP_K) -> list[dict]:
+    emb = _emb_index()
+    if emb is not None:
+        index, rows = emb
+        scores, pos = index.search(embed([text[:MAX_CHARS]]), k)
+        return [_hit(rows, i, s) for i, s in zip(pos[0], scores[0]) if i >= 0]
     vec, matrix, kb = _tfidf_index()
     scores = (matrix @ vec.transform([text]).T).toarray().ravel()
     top = scores.argsort()[::-1][:k]
     return [_hit(kb, i, scores[i]) for i in top]
 
 
+def _show(query: str) -> None:
+    t = time.perf_counter()
+    hits = search(query)
+    print(f"backend={active_backend()}  ({(time.perf_counter() - t) * 1000:.0f} ms)\nquery: {query}")
+    for h in hits:
+        print(f"  {h['ticket_id']}  {h['score']:.3f}  [{h['language']}] {h['queue']:<28} {h['subject'][:60]}")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--chunks", type=int, default=None, help="embed only the first N chunks (quick dev index)")
-    build(ap.parse_args().chunks)
+    ap.add_argument("--query", help="search the index instead of building it")
+    args = ap.parse_args()
+    if args.query:
+        _show(args.query)
+    else:
+        build(args.chunks)
