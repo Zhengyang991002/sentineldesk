@@ -1,10 +1,17 @@
 pandas
 pyarrow
 numpy
-scikit-learn
+scikit-learn==1.9.1  # must match artifacts/sentinel_model/model.joblib
 joblib
 fastembed
 faiss-cpu
 anthropic
 streamlit
 langdetect
+datasets
+fastapi
+uvicorn
+google-genai
+python-dotenv
+google-cloud-storage
+google-cloud-bigquery

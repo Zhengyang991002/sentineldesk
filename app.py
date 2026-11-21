@@ -21,9 +21,10 @@ if st.button("Triage", type="primary") and body.strip():
     with st.spinner("Triaging..."):
         out = pipeline.run(subject, body)
     st.session_state.n += 1
-    burst = st.session_state.burst.add(f"LIVE-{st.session_state.n}", out["masked_text"], out["triage"])
+    burst = st.session_state.burst.add(subject, body, out["language"])
     if burst["outage"]:
-        st.error(f"MAJOR INCIDENT: {burst['size']} recent tickets about '{burst['label']}' ({', '.join(burst['members'])})")
+        subjects = ", ".join(m["subject"] for m in burst["members"][:5])
+        st.error(f"MAJOR INCIDENT: {burst['size']} recent tickets about '{burst['label']}' ({subjects})")
 
     g = out["gate"]
     if g["status"] == "ESCALATE":
