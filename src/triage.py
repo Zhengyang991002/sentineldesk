@@ -8,15 +8,77 @@ CONTRACT (do not change the return shape; pipeline/gate/UI depend on it):
     }
     predict_batch(subjects, bodies) -> list of the same dicts (used by evaluate.py).
 
-Baseline: shared TF-IDF (word 1-2gram + char_wb 3-5gram) + LogisticRegression(class_weight="balanced"),
+Active model: SentinelDesk ensemble (src/sentinel_classifier.py) = TF-IDF + LogisticRegression blended
+with kNN votes over the KB (char n-gram TF-IDF + multilingual embeddings, so German tickets can match
+English precedents), temperature-calibrated. Loaded from ARTIFACTS/sentinel_model/
+(model.joblib + kb.parquet + kb_emb.npy; the kNN index is KB-only, never test). Needs scikit-learn==1.9.1.
+
+Fallback: if that folder is missing or fails to load, the baseline below is used:
+shared TF-IDF (word 1-2gram + char_wb 3-5gram) + LogisticRegression(class_weight="balanced"),
 one model per label, fit on load_kb("fit") ONLY. C is picked per label by val Macro-F1 from C_GRID.
 Train with:  python -m src.triage   (writes ARTIFACTS/triage.joblib and REPORTS/triage_val.md)
 """
+import logging
+
 from src import config
 from src.data import LABELS, build_text, load_kb
 
+log = logging.getLogger(__name__)
+
+SENTINEL_DIR = config.ARTIFACTS / "sentinel_model"
 MODEL_PATH = config.ARTIFACTS / "triage.joblib"
+_sentinel = None
+_sentinel_failed = False
 _models = None
+
+
+def _load_sentinel():
+    global _sentinel, _sentinel_failed
+    if _sentinel is None and not _sentinel_failed and (SENTINEL_DIR / "model.joblib").exists():
+        try:
+            from src.sentinel_classifier import TriageModel
+            _sentinel = TriageModel.load(str(SENTINEL_DIR))
+        except Exception:  # e.g. scikit-learn version mismatch: fall back to the baseline
+            log.exception("Could not load %s; falling back to %s", SENTINEL_DIR, MODEL_PATH)
+            _sentinel_failed = True
+    return _sentinel
+
+
+def active_model() -> str:
+    if _load_sentinel() is not None:
+        return "sentinel"
+    return "baseline" if _load() is not None else "stub"
+
+
+def hpi_threshold() -> float | None:
+    """Threshold for P(Incident) * P(high), tuned on val for >=0.90 recall. None if the
+    calibrated model is not active (baseline probabilities are not calibrated for it)."""
+    model = _load_sentinel()
+    return float(model.s["gate"]["HPI_THRESHOLD"]) if model is not None else None
+
+
+def hpi_score(pred: dict) -> float:
+    """High-priority-incident score from a predict() result: P(type=Incident) * P(priority=high)."""
+    return pred["type"]["probs"].get("Incident", 0.0) * pred["priority"]["probs"].get("high", 0.0)
+
+
+def _predict_sentinel(model, subjects, bodies) -> list[dict]:
+    from src.sentinel_classifier import build_text as sentinel_text  # same text building as training
+    texts = [sentinel_text(s, b) for s, b in zip(subjects, bodies)]
+    out = [dict() for _ in texts]
+    idx = [i for i, t in enumerate(texts) if t]
+    if idx:
+        probs, _, _ = model.predict_proba([texts[i] for i in idx])
+    for label in LABELS:
+        classes = model.classes[label]
+        for j, i in enumerate(idx):
+            p = probs[label][j]
+            best = int(p.argmax())
+            out[i][label] = {"label": classes[best], "confidence": float(p[best]),
+                             "probs": {c: float(x) for c, x in zip(classes, p)}}
+        for i in set(range(len(texts))) - set(idx):  # empty ticket: uniform, zero confidence
+            out[i][label] = {"label": classes[0], "confidence": 0.0, "probs": {c: 0.0 for c in classes}}
+    return out
 
 
 def _load():
@@ -28,6 +90,9 @@ def _load():
 
 
 def predict_batch(subjects, bodies) -> list[dict]:
+    sentinel = _load_sentinel()
+    if sentinel is not None:
+        return _predict_sentinel(sentinel, list(subjects), list(bodies))
     texts = [build_text(s, b) for s, b in zip(subjects, bodies)]
     models = _load()
     if models is None:  # STUB until the trained model exists
