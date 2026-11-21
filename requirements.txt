@@ -1,0 +1,10 @@
+pandas
+pyarrow
+numpy
+scikit-learn
+joblib
+fastembed
+faiss-cpu
+anthropic
+streamlit
+langdetect
